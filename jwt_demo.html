@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JWT Security Demo — Algorithm Confusion</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;600;700;800&display=swap');
+
+  :root {
+    --bg: #0a0b0f;
+    --surface: #111318;
+    --surface2: #1a1d26;
+    --border: #242836;
+    --accent: #00e5ff;
+    --accent2: #ff4757;
+    --accent3: #2ed573;
+    --warn: #ffa502;
+    --text: #e8eaf0;
+    --muted: #6b7280;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Syne', sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .app { position: relative; z-index: 1; max-width: 1100px; margin: 0 auto; padding: 24px 20px 60px; }
+
+  header {
+    display: flex; align-items: center; gap: 16px;
+    padding: 20px 0 32px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 32px;
+  }
+  .logo {
+    width: 42px; height: 42px;
+    background: var(--accent); border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-weight: 700; font-size: 13px;
+    color: var(--bg); letter-spacing: -1px;
+  }
+  header h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
+  header span { font-size: 13px; color: var(--muted); font-family: var(--mono); }
+  .status-badge {
+    margin-left: auto; padding: 5px 12px;
+    border-radius: 20px; font-size: 12px; font-family: var(--mono); font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+  .status-badge.vuln { background: rgba(255,71,87,0.15); color: var(--accent2); border: 1px solid rgba(255,71,87,0.3); }
+  .status-badge.safe { background: rgba(46,213,115,0.15); color: var(--accent3); border: 1px solid rgba(46,213,115,0.3); }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+  @media (max-width: 768px) { .grid, .grid-3 { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  .card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--accent), transparent);
+    opacity: 0.5;
+  }
+  .card.danger::before { background: linear-gradient(90deg, var(--accent2), transparent); }
+  .card.success::before { background: linear-gradient(90deg, var(--accent3), transparent); }
+  .card.warn::before { background: linear-gradient(90deg, var(--warn), transparent); }
+
+  .card-title {
+    font-size: 13px; font-weight: 700; letter-spacing: 1.5px;
+    text-transform: uppercase; color: var(--muted);
+    margin-bottom: 20px; display: flex; align-items: center; gap: 8px;
+  }
+  .card-title .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent); flex-shrink: 0;
+  }
+  .card.danger .card-title .dot { background: var(--accent2); }
+  .card.success .card-title .dot { background: var(--accent3); }
+  .card.warn .card-title .dot { background: var(--warn); }
+
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 11px; color: var(--muted); font-family: var(--mono); margin-bottom: 6px; letter-spacing: 0.5px; }
+  .field input {
+    width: 100%; padding: 10px 14px;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text); font-family: var(--mono); font-size: 13px;
+    outline: none; transition: border-color 0.2s;
+  }
+  .field input:focus { border-color: var(--accent); }
+
+  .btn {
+    width: 100%; padding: 11px 16px;
+    border: none; border-radius: 8px; cursor: pointer;
+    font-family: var(--sans); font-size: 13px; font-weight: 700;
+    letter-spacing: 0.3px; transition: all 0.2s; margin-top: 4px;
+  }
+  .btn-primary { background: var(--accent); color: var(--bg); }
+  .btn-primary:hover { background: #33eaff; transform: translateY(-1px); }
+  .btn-danger { background: var(--accent2); color: white; }
+  .btn-danger:hover { background: #ff6b78; transform: translateY(-1px); }
+  .btn-success { background: var(--accent3); color: var(--bg); }
+  .btn-success:hover { background: #52f591; transform: translateY(-1px); }
+  .btn-ghost {
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; }
+  .btn-row { display: flex; gap: 8px; margin-top: 4px; }
+  .btn-row .btn { margin-top: 0; }
+
+  .token-box {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px; font-family: var(--mono); font-size: 11px;
+    word-break: break-all; line-height: 1.6; color: var(--muted);
+    max-height: 90px; overflow-y: auto; margin-top: 10px;
+  }
+  .token-box .h { color: var(--accent); }
+  .token-box .p { color: var(--warn); }
+  .token-box .s { color: var(--accent3); }
+  .token-label { font-size: 10px; color: var(--muted); font-family: var(--mono); margin-top: 8px; margin-bottom: 2px; }
+
+  .console {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 10px; font-family: var(--mono); font-size: 12px;
+    padding: 0; overflow: hidden; margin-top: 12px;
+  }
+  .console-header {
+    padding: 8px 14px; background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; color: var(--muted);
+  }
+  .console-header .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .console-body { padding: 12px 14px; max-height: 200px; overflow-y: auto; }
+  .log-line { padding: 2px 0; line-height: 1.7; }
+  .log-line.info { color: var(--accent); }
+  .log-line.warn { color: var(--warn); }
+  .log-line.error { color: var(--accent2); }
+  .log-line.success { color: var(--accent3); }
+  .log-line.muted { color: var(--muted); }
+
+  .resp-box {
+    border-radius: 8px; padding: 12px 14px;
+    font-family: var(--mono); font-size: 12px; line-height: 1.7;
+    margin-top: 10px; border: 1px solid var(--border);
+    min-height: 44px; background: var(--bg);
+  }
+  .resp-box.ok { border-color: rgba(46,213,115,0.3); color: var(--accent3); }
+  .resp-box.err { border-color: rgba(255,71,87,0.3); color: var(--accent2); }
+  .resp-box.empty { color: var(--muted); }
+
+  .toggle-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 18px; background: var(--surface2);
+    border-radius: 10px; border: 1px solid var(--border); margin-bottom: 16px;
+  }
+  .toggle { position: relative; width: 44px; height: 24px; flex-shrink: 0; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .slider {
+    position: absolute; inset: 0; background: var(--accent2);
+    border-radius: 12px; cursor: pointer; transition: 0.3s;
+  }
+  .slider::before {
+    content: ''; position: absolute;
+    height: 18px; width: 18px; left: 3px; bottom: 3px;
+    background: white; border-radius: 50%; transition: 0.3s;
+  }
+  .toggle input:checked + .slider { background: var(--accent3); }
+  .toggle input:checked + .slider::before { transform: translateX(20px); }
+  .toggle-label { font-size: 13px; font-weight: 600; }
+  .toggle-sub { font-size: 11px; color: var(--muted); font-family: var(--mono); }
+
+  .section-title {
+    font-size: 11px; font-weight: 700; letter-spacing: 2px;
+    text-transform: uppercase; color: var(--muted);
+    margin: 32px 0 16px; display: flex; align-items: center; gap: 10px;
+  }
+  .section-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  .steps { display: flex; gap: 0; margin-bottom: 20px; }
+  .step {
+    flex: 1; text-align: center; padding: 10px 8px;
+    font-size: 11px; font-family: var(--mono);
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--muted); transition: all 0.3s; cursor: default;
+  }
+  .step:first-child { border-radius: 8px 0 0 8px; }
+  .step:last-child { border-radius: 0 8px 8px 0; }
+  .step + .step { border-left: none; }
+  .step.active { background: rgba(0,229,255,0.1); color: var(--accent); border-color: rgba(0,229,255,0.3); }
+  .step.done { background: rgba(46,213,115,0.1); color: var(--accent3); border-color: rgba(46,213,115,0.3); }
+  .step.attack-active { background: rgba(255,71,87,0.1); color: var(--accent2); border-color: rgba(255,71,87,0.3); }
+
+  .pill {
+    display: inline-block; padding: 2px 8px; border-radius: 12px;
+    font-size: 10px; font-family: var(--mono); font-weight: 600; letter-spacing: 0.5px;
+  }
+  .pill.vuln { background: rgba(255,71,87,0.15); color: var(--accent2); }
+  .pill.safe { background: rgba(46,213,115,0.15); color: var(--accent3); }
+  .pill.info { background: rgba(0,229,255,0.15); color: var(--accent); }
+
+  .info-box {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 14px; font-size: 12px;
+    color: var(--muted); line-height: 1.6; margin-top: 10px;
+  }
+  .info-box strong { color: var(--text); }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+  .animate { animation: fadeIn 0.3s ease forwards; }
+  .blink { animation: pulse 1.5s infinite; }
+
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .user-strip {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; border-radius: 8px;
+    background: var(--surface2); border: 1px solid var(--border);
+    margin-bottom: 12px; font-size: 12px;
+  }
+  .avatar {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: var(--accent); display: flex; align-items: center;
+    justify-content: center; font-weight: 700; font-size: 12px; color: var(--bg);
+    flex-shrink: 0;
+  }
+  .avatar.attacker { background: var(--accent2); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <div class="logo">JWT</div>
+    <div>
+      <h1>Algorithm Confusion Demo</h1>
+      <span>Демонстрация уязвимости и защиты JWT · Курсовая работа</span>
+    </div>
+    <div class="status-badge vuln" id="globalBadge">⚠ УЯЗВИМАЯ ВЕРСИЯ</div>
+  </header>
+
+  <div class="toggle-row">
+    <label class="toggle">
+      <input type="checkbox" id="protectionToggle" onchange="toggleProtection()">
+      <span class="slider"></span>
+    </label>
+    <div>
+      <div class="toggle-label" id="toggleLabel">Защита отключена — сервер принимает HS256 и RS256</div>
+      <div class="toggle-sub" id="toggleSub">algorithms=['RS256', 'HS256'] &nbsp;←&nbsp; уязвимо</div>
+    </div>
+  </div>
+
+  <div class="section-title">01 — Аутентификация</div>
+  <div class="grid">
+    <div class="card">
+      <div class="card-title"><span class="dot"></span>Регистрация</div>
+      <div class="field">
+        <label>Логин</label>
+        <input type="text" id="regUser" placeholder="например: alice" value="alice">
+      </div>
+      <div class="field">
+        <label>Пароль</label>
+        <input type="password" id="regPass" placeholder="минимум 4 символа" value="password123">
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-ghost" onclick="registerUser()">Зарегистрироваться</button>
+        <button class="btn btn-primary" onclick="quickDemo()">Быстрый старт</button>
+      </div>
+      <div class="resp-box empty" id="regResp">Результат появится здесь...</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span class="dot"></span>Вход в систему</div>
+      <div class="field">
+        <label>Логин</label>
+        <input type="text" id="loginUser" placeholder="alice" value="alice">
+      </div>
+      <div class="field">
+        <label>Пароль</label>
+        <input type="password" id="loginPass" placeholder="password123" value="password123">
+      </div>
+      <button class="btn btn-primary" onclick="loginUser()" style="margin-top:8px">Войти и получить токен</button>
+      <div class="resp-box empty" id="loginResp">Токен появится здесь после входа...</div>
+    </div>
+  </div>
+
+  <div class="card" id="tokenCard" style="margin-top:20px;display:none">
+    <div class="card-title"><span class="dot"></span>Текущий JWT-токен <span class="pill info" id="tokenAlgPill">RS256</span></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+      <div>
+        <div class="token-label">Header (base64)</div>
+        <div class="token-box"><span class="h" id="tokH">—</span></div>
+      </div>
+      <div>
+        <div class="token-label">Payload (base64)</div>
+        <div class="token-box"><span class="p" id="tokP">—</span></div>
+      </div>
+      <div>
+        <div class="token-label">Signature</div>
+        <div class="token-box"><span class="s" id="tokS">—</span></div>
+      </div>
+    </div>
+    <div class="info-box" id="payloadDecoded" style="margin-top:12px"></div>
+  </div>
+
+  <div class="section-title">02 — Защищённый ресурс и атака</div>
+  <div class="grid">
+
+    <div class="card">
+      <div class="card-title"><span class="dot"></span>Доступ к профилю</div>
+      <div class="info-box" style="margin-bottom:14px">
+        Запрос к <strong>/api/profile</strong> с токеном из localStorage.
+        Обычный пользователь получает роль <strong>user</strong>.
+      </div>
+      <button class="btn btn-primary" onclick="getProfile(false)">Запросить профиль (свой токен)</button>
+      <div class="resp-box empty" id="profileResp">Ответ сервера появится здесь...</div>
+    </div>
+
+    <div class="card danger">
+      <div class="card-title"><span class="dot"></span>Algorithm Confusion Attack <span class="pill vuln">АТАКА</span></div>
+      <div class="info-box" style="margin-bottom:14px">
+        Атакующий <strong>не имеет аккаунта</strong>. Он берёт публичный ключ RSA,
+        подписывает им токен через HS256 и отправляет как будто он <strong>admin</strong>.
+      </div>
+      <div class="steps" id="attackSteps">
+        <div class="step" id="s1">1. Ключ</div>
+        <div class="step" id="s2">2. Токен</div>
+        <div class="step" id="s3">3. Запрос</div>
+        <div class="step" id="s4">4. Ответ</div>
+      </div>
+      <button class="btn btn-danger" onclick="runAttack()">▶ Запустить атаку</button>
+      <div class="resp-box empty" id="attackResp">Результат атаки появится здесь...</div>
+    </div>
+  </div>
+
+  <div class="section-title">03 — Лог событий</div>
+  <div class="console">
+    <div class="console-header">
+      <div class="dot" style="background:#ff5f57"></div>
+      <div class="dot" style="background:#febc2e"></div>
+      <div class="dot" style="background:#28c840"></div>
+      <span style="margin-left:4px">jwt-demo / server.log</span>
+    </div>
+    <div class="console-body" id="consoleLog">
+      <div class="log-line muted">// Лог запросов появится здесь...</div>
+    </div>
+  </div>
+
+  <div class="section-title">04 — Как работает атака</div>
+  <div class="grid-3">
+    <div class="card">
+      <div class="card-title"><span class="dot"></span>Шаг 1 — Получение ключа</div>
+      <p style="font-size:13px;line-height:1.7;color:var(--muted)">
+        Атакующий делает GET /public-key. Сервер возвращает RSA публичный ключ — это стандартная практика (JWKS endpoint). Ключ открыт по определению.
+      </p>
+    </div>
+    <div class="card danger">
+      <div class="card-title"><span class="dot"></span>Шаг 2 — Подмена алгоритма</div>
+      <p style="font-size:13px;line-height:1.7;color:var(--muted)">
+        В Header пишет <strong style="color:var(--accent2)">alg: HS256</strong>. В Payload — <strong style="color:var(--accent2)">role: admin</strong>. Подписывает токен публичным ключом RSA как HMAC-секретом.
+      </p>
+    </div>
+    <div class="card warn">
+      <div class="card-title"><span class="dot"></span>Шаг 3 — Коллизия</div>
+      <p style="font-size:13px;line-height:1.7;color:var(--muted)">
+        Уязвимый сервер читает <strong style="color:var(--warn)">alg из заголовка</strong>, переключается на HMAC-проверку с тем же публичным ключом. Подпись совпадает → токен принят.
+      </p>
+    </div>
+  </div>
+
+  <div class="card success" style="margin-top:0">
+    <div class="card-title"><span class="dot"></span>Защита — одна строка кода</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:center">
+      <div>
+        <div class="token-label" style="color:var(--accent2)">❌ Уязвимый код</div>
+        <div class="token-box" style="border-color:rgba(255,71,87,0.3)">
+          <span style="color:var(--accent2)">jwt.decode(token, PUBLIC_KEY,<br>&nbsp;&nbsp;algorithms=['RS256', 'HS256'])</span>
+        </div>
+        <div class="token-label" style="color:var(--accent3);margin-top:12px">✓ Защищённый код</div>
+        <div class="token-box" style="border-color:rgba(46,213,115,0.3)">
+          <span style="color:var(--accent3)">jwt.decode(token, PUBLIC_KEY,<br>&nbsp;&nbsp;algorithms=['RS256'])</span>
+        </div>
+      </div>
+      <div style="font-size:13px;line-height:1.8;color:var(--muted)">
+        Когда список разрешённых алгоритмов содержит только <strong style="color:var(--accent)">RS256</strong>, библиотека проверяет поле <code style="color:var(--accent)">alg</code> в заголовке токена ещё до верификации подписи.
+        Токен с <code style="color:var(--accent2)">alg: HS256</code> отклоняется немедленно с ошибкой
+        <code style="color:var(--accent2)">InvalidAlgorithmError</code> — до каких-либо криптографических вычислений.
+        <br><br>
+        <strong style="color:var(--text)">Переключите тумблер вверху</strong> и повторите атаку — увидите разницу.
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+
+
+const DB = {}; 
+let currentToken = null;
+let protectionEnabled = false;
+
+const FAKE_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2a2rwplBQLF29amygykE
+mMjhIoW+CdRrMFbBrAOHPYo4ZFEi/dIBDGV+qPITNMx6lBtODWcVH6LFBCMBsQ
+lPDEMqOZ0bBrHBfU+3ZxDgGJLpEDoFV43QLXX7psRRxDGTNtJKHhF2P3EXAMPLE
+-----END PUBLIC KEY-----`;
+
+function simpleHash(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const c = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + c;
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(36).padStart(8,'0');
+}
+
+function b64url(obj) {
+  return btoa(JSON.stringify(obj))
+    .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+
+function parseB64url(str) {
+  try {
+    const b64 = str.replace(/-/g,'+').replace(/_/g,'/');
+    return JSON.parse(atob(b64 + '=='.slice((b64.length%4)||4)));
+  } catch { return null; }
+}
+
+function createRS256Token(username, role) {
+  const header = { alg: 'RS256', typ: 'JWT' };
+  const payload = {
+    sub: simpleHash(username),
+    username,
+    role,
+    iat: Math.floor(Date.now()/1000),
+    exp: Math.floor(Date.now()/1000) + 3600
+  };
+  const h = b64url(header);
+  const p = b64url(payload);
+  const sig = 'RS256_' + simpleHash(h + '.' + p + '_PRIVATE_KEY_SECRET');
+  return `${h}.${p}.${sig}`;
+}
+
+function createHS256AttackToken() {
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const payload = {
+    sub: 999,
+    username: 'attacker',
+    role: 'admin',
+    iat: Math.floor(Date.now()/1000),
+    exp: Math.floor(Date.now()/1000) + 3600
+  };
+  const h = b64url(header);
+  const p = b64url(payload);
+  const sig = 'HS256_' + simpleHash(h + '.' + p + '_' + FAKE_PUBLIC_KEY);
+  return `${h}.${p}.${sig}`;
+}
+
+function verifyToken(token) {
+  const parts = token.split('.');
+  if (parts.length !== 3) return { ok: false, error: 'Invalid token format' };
+
+  const header = parseB64url(parts[0]);
+  const payload = parseB64url(parts[1]);
+  if (!header || !payload) return { ok: false, error: 'Invalid token encoding' };
+
+  if (payload.exp < Math.floor(Date.now()/1000)) return { ok: false, error: 'Token expired' };
+
+  const alg = header.alg;
+
+  if (!protectionEnabled) {
+    if (alg === 'RS256') {
+      const expectedSig = 'RS256_' + simpleHash(parts[0] + '.' + parts[1] + '_PRIVATE_KEY_SECRET');
+      if (parts[2] !== expectedSig) return { ok: false, error: 'Invalid signature' };
+    } else if (alg === 'HS256') {
+      const expectedSig = 'HS256_' + simpleHash(parts[0] + '.' + parts[1] + '_' + FAKE_PUBLIC_KEY);
+      if (parts[2] !== expectedSig) return { ok: false, error: 'Invalid signature' };
+    } else if (alg === 'none') {
+    } else {
+      return { ok: false, error: 'Unknown algorithm' };
+    }
+  } else {
+    if (alg !== 'RS256') {
+      return { ok: false, error: `InvalidAlgorithmError: algorithm "${alg}" not allowed. Only RS256 is accepted.` };
+    }
+    const expectedSig = 'RS256_' + simpleHash(parts[0] + '.' + parts[1] + '_PRIVATE_KEY_SECRET');
+    if (parts[2] !== expectedSig) return { ok: false, error: 'Invalid signature' };
+  }
+
+  return { ok: true, payload };
+}
+
+function log(msg, type = 'muted') {
+  const box = document.getElementById('consoleLog');
+  const line = document.createElement('div');
+  line.className = `log-line ${type} animate`;
+  const time = new Date().toLocaleTimeString('ru-RU');
+  line.innerHTML = `<span style="color:var(--muted)">[${time}]</span> ${msg}`;
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
+}
+
+function setResp(id, html, type = '') {
+  const el = document.getElementById(id);
+  el.className = `resp-box ${type} animate`;
+  el.innerHTML = html;
+}
+
+function showToken(token) {
+  const parts = token.split('.');
+  document.getElementById('tokH').textContent = parts[0];
+  document.getElementById('tokP').textContent = parts[1];
+  document.getElementById('tokS').textContent = parts[2];
+
+  const payload = parseB64url(parts[1]);
+  const header = parseB64url(parts[0]);
+  document.getElementById('tokenAlgPill').textContent = header?.alg || '?';
+
+  if (payload) {
+    document.getElementById('payloadDecoded').innerHTML =
+      `<strong>Декодированный Payload:</strong> sub=${payload.sub} · username=<strong>${payload.username}</strong> · role=<strong style="color:${payload.role==='admin'?'var(--accent2)':'var(--accent3)'}">${payload.role}</strong> · exp=${new Date(payload.exp*1000).toLocaleTimeString()}`;
+  }
+  document.getElementById('tokenCard').style.display = 'block';
+}
+
+function setStep(n, type = 'active') {
+  for (let i = 1; i <= 4; i++) {
+    const el = document.getElementById('s' + i);
+    if (i < n) el.className = 'step done';
+    else if (i === n) el.className = `step ${type}`;
+    else el.className = 'step';
+  }
+}
+function toggleProtection() {
+  protectionEnabled = document.getElementById('protectionToggle').checked;
+  const badge = document.getElementById('globalBadge');
+  const label = document.getElementById('toggleLabel');
+  const sub = document.getElementById('toggleSub');
+
+  if (protectionEnabled) {
+    badge.className = 'status-badge safe';
+    badge.textContent = '✓ ЗАЩИЩЁННАЯ ВЕРСИЯ';
+    label.textContent = 'Защита включена — разрешён только RS256';
+    sub.textContent = "algorithms=['RS256']  ←  безопасно";
+    log("🛡 Защита включена. algorithms=['RS256'] — токены с другим алгоритмом будут отклонены.", 'success');
+  } else {
+    badge.className = 'status-badge vuln';
+    badge.textContent = '⚠ УЯЗВИМАЯ ВЕРСИЯ';
+    label.textContent = 'Защита отключена — сервер принимает HS256 и RS256';
+    sub.textContent = "algorithms=['RS256', 'HS256']  ←  уязвимо";
+    log("⚠ Защита отключена. algorithms=['RS256', 'HS256'] — Algorithm Confusion возможна.", 'warn');
+  }
+  setResp('attackResp', 'Повторите атаку для проверки...', 'empty');
+  setResp('profileResp', 'Повторите запрос...', 'empty');
+  for (let i = 1; i <= 4; i++) document.getElementById('s' + i).className = 'step';
+}
+
+function registerUser() {
+  const user = document.getElementById('regUser').value.trim();
+  const pass = document.getElementById('regPass').value.trim();
+  if (!user || !pass) { setResp('regResp', '⚠ Заполните все поля', 'err'); return; }
+  if (pass.length < 4) { setResp('regResp', '⚠ Пароль слишком короткий', 'err'); return; }
+  if (DB[user]) { setResp('regResp', `⚠ Пользователь "${user}" уже существует`, 'err'); return; }
+
+  DB[user] = { password: simpleHash(pass + 'salt'), role: 'user' };
+  setResp('regResp', `✓ Пользователь <strong>${user}</strong> зарегистрирован (роль: user)`, 'ok');
+  log(`POST /register → 200 OK · user="${user}"`, 'info');
+  document.getElementById('loginUser').value = user;
+}
+
+function loginUser() {
+  const user = document.getElementById('loginUser').value.trim();
+  const pass = document.getElementById('loginPass').value.trim();
+
+  if (!DB[user]) { setResp('loginResp', `⚠ Пользователь "${user}" не найден. Сначала зарегистрируйтесь.`, 'err'); return; }
+  if (DB[user].password !== simpleHash(pass + 'salt')) { setResp('loginResp', '⚠ Неверный пароль', 'err'); return; }
+
+  const token = createRS256Token(user, DB[user].role);
+  localStorage.setItem('jwt_demo_token', token);
+  currentToken = token;
+
+  setResp('loginResp', `✓ Вход выполнен. Токен сохранён в localStorage`, 'ok');
+  log(`POST /login → 200 OK · user="${user}" · alg=RS256`, 'success');
+  showToken(token);
+}
+
+function quickDemo() {
+  if (!DB['alice']) { DB['alice'] = { password: simpleHash('password123salt'), role: 'user' }; }
+  if (!DB['admin']) { DB['admin'] = { password: simpleHash('admin123salt'), role: 'admin' }; }
+  document.getElementById('regUser').value = 'alice';
+  document.getElementById('regPass').value = 'password123';
+  document.getElementById('loginUser').value = 'alice';
+  document.getElementById('loginPass').value = 'password123';
+  setResp('regResp', '✓ Пользователи alice (user) и admin (admin) готовы', 'ok');
+  log('Быстрый старт: созданы тестовые пользователи alice и admin', 'info');
+  loginUser();
+}
+
+function getProfile(fromAttack = false, overrideToken = null) {
+  const token = overrideToken || localStorage.getItem('jwt_demo_token');
+  if (!token && !overrideToken) {
+    setResp('profileResp', '⚠ Нет токена. Войдите в систему.', 'err');
+    return;
+  }
+
+  log(`GET /api/profile · Authorization: Bearer ${token.slice(0,30)}...`, 'info');
+  const result = verifyToken(token);
+
+  if (result.ok) {
+    const p = result.payload;
+    const isAdmin = p.role === 'admin';
+    const html = `✓ 200 OK<br>username: <strong>${p.username}</strong><br>role: <strong style="color:${isAdmin?'var(--accent2)':'var(--accent3)'}">${p.role}</strong>${isAdmin ? '<br><br>⚠ ПРАВА АДМИНИСТРАТОРА ПОЛУЧЕНЫ!' : ''}`;
+    if (fromAttack) {
+      setResp('attackResp', html, 'ok');
+      setStep(4, isAdmin ? 'attack-active' : 'done');
+      if (isAdmin) {
+        log(`🚨 АТАКА УСПЕШНА! Поддельный токен принят. role=admin получен без регистрации.`, 'error');
+      }
+    } else {
+      setResp('profileResp', html, 'ok');
+      log(`→ 200 OK · username=${p.username} · role=${p.role}`, 'success');
+    }
+  } else {
+    const html = `✗ 401 Unauthorized<br>${result.error}`;
+    if (fromAttack) {
+      setResp('attackResp', html, 'err');
+      setStep(4, 'done');
+      log(`✓ Атака отражена: ${result.error}`, 'success');
+    } else {
+      setResp('profileResp', html, 'err');
+      log(`→ 401 Unauthorized · ${result.error}`, 'error');
+    }
+  }
+}
+
+async function runAttack() {
+  setResp('attackResp', '⏳ Выполняется атака...', 'empty');
+  log('═══ НАЧАЛО АТАКИ ALGORITHM CONFUSION ═══', 'warn');
+
+  setStep(1, 'attack-active');
+  await delay(600);
+  log('GET /public-key → получен RSA публичный ключ', 'warn');
+
+  setStep(2, 'attack-active');
+  await delay(700);
+  const fakeToken = createHS256AttackToken();
+  log(`Создан поддельный токен: alg=HS256, role=admin, подпись=HMAC(publicKey)`, 'warn');
+  showToken(fakeToken);
+
+  setStep(3, 'attack-active');
+  await delay(600);
+  log(`GET /api/profile с поддельным токеном...`, 'warn');
+
+  await delay(500);
+  getProfile(true, fakeToken);
+}
+
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+log('Сервер запущен. Режим: УЯЗВИМЫЙ (HS256+RS256)', 'warn');
+log('Используйте "Быстрый старт" для быстрой инициализации', 'muted');
+</script>
+</body>
+</html>
